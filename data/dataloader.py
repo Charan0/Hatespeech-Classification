@@ -1,5 +1,7 @@
 import pandas as pd
 from typing import List
+
+import torch
 from torch.utils.data import Dataset
 from torchtext.data.utils import get_tokenizer
 from torchtext.vocab import build_vocab_from_iterator
@@ -38,6 +40,32 @@ class HateSpeechDataset(Dataset):
         return self.data[index]
 
 
+class CleanedDataset(Dataset):
+    def __init__(self, file_loc: str, data_rows: List[str], vocab, max_len: int = 50):
+        self.dataframe = pd.read_csv(file_loc)
+        self.data_rows = data_rows
+        self.data = self.dataframe.loc[:, data_rows].values
+        self.max_len = max_len
+        self.vocab = vocab
+
+    def __len__(self):
+        return self.data.shape[0]
+
+    def __getitem__(self, index: int):
+        sentence, label = self.data[index]
+        vocab = self.vocab.get_stoi()
+        tokens = [vocab.get(word, vocab.get("<unk>")) for word in str(sentence).split()][:self.max_len-2]
+        tokens = [self.vocab["<sos>"]] + tokens + [self.vocab["<eos>"]]
+        sentence_len = len(tokens)
+        if sentence_len < self.max_len:
+            padding = (self.max_len - sentence_len) * [self.vocab["<pad>"]]
+            padded = tokens + padding
+        else:
+            padded = tokens
+
+        return torch.tensor(padded), torch.tensor(label)
+
+
 def tweet_cleaner(t):
     soup = BeautifulSoup(t, 'lxml')
     souped = soup.get_text()
@@ -68,5 +96,5 @@ def get_data_and_vocab(file_path: str, out_file: str, columns: List):
     cleaned_df = pd.DataFrame(cleaned_data)
     cleaned_df.to_csv(out_file)
     vocab = build_vocab_from_iterator(iterate_dataset(hate_dataset), min_freq=3,
-                                      specials=["<unk>", "<sos>", "<eos>"], special_first=True)
+                                      specials=["<unk>", "<sos>", "<eos>", "<pad>"], special_first=True)
     return vocab, out_file

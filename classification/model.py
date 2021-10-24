@@ -3,38 +3,32 @@ import torch.nn as nn
 
 
 class SentimentModel(nn.Module):
-    def __init__(self, vocab_size: int, emb_dim: int, hidden_dim: int, output_dim: int, n_layers: int,
-                 bidirectional: bool, rate: float, pad_idx: int):
+    def __init__(self, vocab_size: int, emb_dim: int, hidden_dim: int, output_dim: int, rate: float, pad_idx: int):
         super(SentimentModel, self).__init__()
         self.embedding = nn.Embedding(num_embeddings=vocab_size, embedding_dim=emb_dim, padding_idx=pad_idx)
-        self.neural_net = nn.LSTM(emb_dim, hidden_dim, num_layers=n_layers, bidirectional=bidirectional, dropout=rate)
-        self.fully_connected = nn.Linear(hidden_dim * 2, output_dim)
-        self.dropout_layer = nn.Dropout(rate)
+        self.neural_net = nn.RNN(emb_dim, hidden_dim, num_layers=1, bidirectional=False)
+        self.fully_connected = nn.Sequential(
+            nn.Linear(hidden_dim, hidden_dim // 2),
+            nn.BatchNorm1d(hidden_dim // 2),
+            nn.Dropout(rate),
+            nn.Linear(hidden_dim // 2, output_dim)
+        )
 
-    def forward(self, text, text_len):
+    def forward(self, text):
         # text = [sent len, batch size]
-        embedded = self.dropout(self.embedding(text))
-        # embedded = [sent len, batch size, emb dim]
-        # pack sequence
-        # lengths need to be on CPU!
-        packed_embedded = nn.utils.rnn.pack_padded_sequence(embedded, text_len.to('cpu'))
+        embedded = self.embedding(text)
+        print(f"Embeddings: {embedded.shape}")
+        # embedded = [sent len, batch size, emb dim
+        # print(self.neural_net(embedded))
+        # print(self.neural_net(embedded))
+        output, hidden = self.neural_net(embedded)
+        print(f"Output: {output.shape} Hidden: {hidden.shape}")
+        predictions = self.fully_connected(hidden.squeeze()).squeeze()
+        print(f"Prediction from model: {predictions.shape}")
 
-        packed_output, (hidden, cell) = self.rnn(packed_embedded)
+        return predictions
+        # output = [sent len, batch size, hid dim]
+        # hidden = [1, batch size, hid dim]
 
-        # unpack sequence
-        output, output_lengths = nn.utils.rnn.pad_packed_sequence(packed_output)
 
-        # output = [sent len, batch size, hid dim * num directions]
-        # output over padding tokens are zero tensors
-
-        # hidden = [num layers * num directions, batch size, hid dim]
-        # cell = [num layers * num directions, batch size, hid dim]
-
-        # concat the final forward (hidden[-2,:,:]) and backward (hidden[-1,:,:]) hidden layers
-        # and apply dropout
-
-        hidden = self.dropout_layer(torch.cat((hidden[-2, :, :], hidden[-1, :, :]), dim=1))
-
-        # hidden = [batch size, hid dim * num directions]
-
-        return self.fully_connected(hidden)
+model = SentimentModel(10, 10, 2, 1, 0.6, 0)
